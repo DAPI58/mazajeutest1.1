@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sauve Mazarine face à la ruralité !</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <style>
+    /* Reset minimal */
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #ccf0ff;
+      padding: 10px;
+    }
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 8px;
+    }
+    #info {
+      font-size: 1rem;
+      margin-bottom: 12px;
+      user-select: none;
+    }
+
+    canvas {
+      background: #ccf0ff;
+      border: 2px solid #000;
+      display: none;
+      margin: 0 auto 12px auto;
+      width: 100%;
+      max-width: 480px;
+      height: auto;
+      aspect-ratio: 3 / 4; /* Garde ratio 480x640 */
+      touch-action: none; /* évite le scroll quand on joue */
+      border-radius: 8px;
+    }
+
+    button {
+      font-size: 1.3rem;
+      padding: 12px 20px;
+      margin: 6px 8px;
+      border: none;
+      border-radius: 8px;
+      background: #007acc;
+      color: white;
+      cursor: pointer;
+      user-select: none;
+      transition: background-color 0.3s ease;
+      min-width: 120px;
+    }
+    button:hover, button:focus {
+      background: #005fa3;
+      outline: none;
+    }
+    #jumpBtn, #restartBtn {
+      display: none;
+    }
+
+    @media (min-width: 500px) {
+      h1 {
+        font-size: 2rem;
+      }
+      #info {
+        font-size: 1.1rem;
+      }
+      button {
+        font-size: 1.4rem;
+        min-width: 140px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Sauve Mazarine face à la ruralité !</h1>
+  <p id="info">Appuyez sur le bouton SAUTER pour faire sauter Mazarine !</p>
+  <button id="startBtn">Commencer</button>
+  <canvas id="gameCanvas" width="480" height="640"></canvas>
+  <div>
+    <button id="jumpBtn">SAUTER</button>
+    <button id="restartBtn">Rejouer</button>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const startBtn = document.getElementById('startBtn');
+      const jumpBtn = document.getElementById('jumpBtn');
+      const restartBtn = document.getElementById('restartBtn');
+      const info = document.getElementById('info');
+
+      const playerEmoji = '👩‍🦰';
+      const obstacleEmojis = ['🚜', '🐄', '🐓', '🧑‍🌾', '🛻'];
+      let obstacles = [];
+      let lives = 3;
+      let timer = 60;
+      let gameRunning = false;
+      let gameOver = false;
+      let gameLoopId;
+      let obstacleInterval, timerInterval;
+
+      const obstacleSpeed = 5;
+      const spawnIntervalMs = 800;
+
+      const player = {
+        x: 100,
+        y: 300,
+        size: 40,
+        velocity: 0,
+        gravity: 0.8,
+        lift: -15,
+      };
+
+      function drawPlayer() {
+        ctx.font = `${player.size}px Arial`;
+        ctx.textBaseline = "top";
+        ctx.fillText(playerEmoji, player.x, player.y);
+      }
+
+      function drawObstacles() {
+        ctx.font = "32px Arial";
+        for (let obs of obstacles) {
+          ctx.fillText(obs.emoji, obs.x, obs.y);
+          obs.x -= obstacleSpeed;
+        }
+        obstacles = obstacles.filter(obs => obs.x + 32 > 0);
+      }
+
+      function spawnObstacle() {
+        const emoji = obstacleEmojis[Math.floor(Math.random() * obstacleEmojis.length)];
+        const y = Math.random() * (canvas.height - 50);
+        obstacles.push({ x: canvas.width, y: y, emoji: emoji });
+      }
+
+      function detectCollision() {
+        for (let obs of obstacles) {
+          const dx = player.x - obs.x;
+          const dy = player.y - obs.y;
+          if (Math.abs(dx) < 32 && Math.abs(dy) < 32) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function drawHUD() {
+        ctx.fillStyle = 'black';
+        ctx.font = '18px Arial';
+        ctx.fillText(`Vies : ${lives}`, 10, 25);
+        ctx.fillText(`Temps : ${timer}s`, canvas.width - 110, 25);
+      }
+
+      // Fonction pour dessiner un rectangle arrondi
+      function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+        if (typeof stroke === 'undefined') {
+          stroke = true;
+        }
+        if (typeof radius === 'undefined') {
+          radius = 5;
+        }
+        if (typeof radius === 'number') {
+          radius = { tl: radius, tr: radius, br: radius, bl: radius };
+        } else {
+          var defaultRadius = { tl: 0, tr: 0, br: 0, bl: 0 };
+          for (var side in defaultRadius) {
+            radius[side] = radius[side] || defaultRadius[side];
+          }
+        }
+        ctx.beginPath();
+        ctx.moveTo(x + radius.tl, y);
+        ctx.lineTo(x + width - radius.tr, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius.tr);
+        ctx.lineTo(x + width, y + height - radius.br);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius.br, y + height);
+        ctx.lineTo(x + radius.bl, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius.bl);
+        ctx.lineTo(x, y + radius.tl);
+        ctx.quadraticCurveTo(x, y, x + radius.tl, y);
+        ctx.closePath();
+        if (fill) {
+          ctx.fill();
+        }
+        if (stroke) {
+          ctx.stroke();
+        }
+      }
+
+      // Fonction wrap texte pour couper en lignes adaptées à la largeur max
+      function wrapText(text, maxWidthPx) {
+        const words = text.split(' ');
+        let lines = [];
+        let currentLine = '';
+
+        for (let word of words) {
+          let testLine = currentLine + (currentLine === '' ? '' : ' ') + word;
+          let testWidth = ctx.measureText(testLine).width;
+          if (testWidth > maxWidthPx && currentLine !== '') {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = testLine;
+          }
+        }
+        if (currentLine !== '') lines.push(currentLine);
+        return lines;
+      }
+
+      function drawEndMessage(message) {
+        const padding = 30;
+        const width = canvas.width * 0.7; // cadre plus étroit
+        const height = 220;
+        const x = (canvas.width - width) / 2;
+        const y = (canvas.height - height) / 2;
+
+        // Fond sombre transparent
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Cadre blanc arrondi
+        ctx.fillStyle = '#fff';
+        roundRect(ctx, x, y, width, height, 25, true, false);
+
+        // Style texte
+        ctx.fillStyle = '#111';
+        ctx.font = '22px Arial, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+
+        const maxTextWidth = width - 2 * padding;
+        const lines = [];
+        // On split sur \n d'abord puis on wrap chaque paragraphe
+        message.split('\n').forEach(paragraph => {
+          const wrapped = wrapText(paragraph, maxTextWidth);
+          lines.push(...wrapped);
+        });
+
+        const lineHeight = 28;
+        let startY = y + padding;
+
+        // Affiche les lignes
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(lines[i], x + padding, startY + i * lineHeight);
+        }
+
+        restartBtn.style.display = 'inline-block';
+        jumpBtn.style.display = 'none';
+        info.textContent = "";
+      }
+
+      function endGame(victory) {
+        clearInterval(obstacleInterval);
+        clearInterval(timerInterval);
+        gameRunning = false;
+        gameOver = true;
+
+        let message = '';
+        if (victory) {
+          message = "🎉 Vous avez gagné !\nVous êtes un fabuleux bobo écolo socialo ! 🌿🥖🚴‍♂️";
+        } else {
+          message = "☠️ Vous avez perdu !\nVous êtes devenu un horrible paysan nivernais ! 🧑‍🌾";
+        }
+        drawEndMessage(message);
+      }
+
+      function gameLoop() {
+        if (!gameRunning) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Gravité & saut
+        player.velocity += player.gravity;
+        player.y += player.velocity;
+
+        // Limites du canvas
+        if (player.y > canvas.height - player.size) {
+          player.y = canvas.height - player.size;
+          player.velocity = 0;
+        }
+        if (player.y < 0) {
+          player.y = 0;
+          player.velocity = 0;
+        }
+
+        drawPlayer();
+        drawObstacles();
+        drawHUD();
+
+        if (detectCollision()) {
+          lives--;
+          if (lives <= 0) {
+            endGame(false);
+            return;
+          }
+          // Evite détection multiple immédiate en supprimant les obstacles trop proches
+          obstacles = obstacles.filter(obs => player.x - obs.x > 50);
+        }
+
+        gameLoopId = requestAnimationFrame(gameLoop);
+      }
+
+      function startGame() {
+        lives = 3;
+        timer = 60;
+        obstacles = [];
+        player.y = 300;
+        player.velocity = 0;
+        gameRunning = true;
+        gameOver = false;
+        canvas.style.display = 'block';
+        restartBtn.style.display = 'none';
+        jumpBtn.style.display = 'inline-block';
+        info.textContent = "Appuyez sur le bouton SAUTER pour faire sauter Mazarine !";
+
+        obstacleInterval = setInterval(spawnObstacle, spawnIntervalMs);
+        timerInterval = setInterval(() => {
+          timer--;
+          if (timer <= 0) {
+            endGame(true);
+          }
+        }, 1000);
+
+        gameLoop();
+      }
+
+      // Saut cumulatif avec le bouton SAUTER
+      jumpBtn.addEventListener('click', () => {
+        if (!gameRunning) return;
+        // Plus on appuie, plus Mazarine monte
+        player.velocity += player.lift;
+      });
+
+      startBtn.addEventListener('click', () => {
+        startBtn.style.display = 'none';
+        startGame();
+      });
+
+      restartBtn.addEventListener('click', () => {
+        cancelAnimationFrame(gameLoopId);
+        startGame();
+      });
+    });
+  </script>
+</body>
+</html>
